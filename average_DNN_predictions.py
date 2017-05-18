@@ -18,23 +18,6 @@ import kaldiIO
 
 #### Run this script from /home/tejas/experiments/en-US_429_512_256_512_913_retraining_after_pruning/pavans_1024x4
 
-# Read utterance
-def readUtterance (ark):
-    ## Read utterance ID
-    uttId = b''
-    c = ark.read(1)
-    if not c:
-        return None, None
-    while c != b' ':
-        uttId += c
-        c = ark.read(1)
-    ## Read feature matrix
-    header = struct.unpack('<xcccc', ark.read(5))
-    m, rows = struct.unpack('<bi', ark.read(5))
-    n, cols = struct.unpack('<bi', ark.read(5))
-    featMat = np.frombuffer(ark.read(rows * cols * 4), dtype=np.float32)
-    return uttId.decode(), featMat.reshape((rows,cols))
-
 def writeUtteranceText(uid, featMat, fp):
     fp.write(uid + ' [\n')
     for row in featMat:
@@ -43,17 +26,17 @@ def writeUtteranceText(uid, featMat, fp):
     fp.write(' ]\n')
 
 def arithmetic_mean(featMat, model_list, weights):
-    prediction = np.zeros((featMat.shape[0], 1375))
+    prediction = np.zeros((featMat.shape[0], model_list[0].output_shape[1]))
     for m, wt in zip(model_list, weights):
         prediction += wt * m.predict(featMat)
     am = prediction/len(model_list)
     return am
 
 def geometric_mean(featMat, model_list, weights):
-    prediction = np.ones((featMat.shape[0], 1375))
+    prediction = np.ones((featMat.shape[0], model_list[0].output_shape[1]))
     for m, wt in zip(model_list, weights):
-        prediction *= wt * m.predict(featMat)
-    gm = np.power(prediction, 1/len(model_list))
+        prediction *= m.predict(featMat) ** wt
+    gm = np.power(prediction, 1/np.ceil(sum(weights)))
     normalized_gm = gm.T / gm.sum(axis=1)
     return normalized_gm.T
     return gm
@@ -66,15 +49,13 @@ if __name__ == '__main__':
     data = '../en-US/data/test_' + test + '_i3feat' 
     encoding = sys.stdout.encoding 
 
-    model_list = ['outdir_en-US_429_1024_1024_1024_1024_1375/dnn.nnet.h15',
-                  'outdir_en-US_429_1024_1024_1024_1024_1375_2/dnn.nnet.h15',
-                  'outdir_en-US_429_1024_1024_1024_1024_1375_3/dnn.nnet.h15',
-                  'outdir_en-US_429_1024_1024_1024_1024_1375_4/dnn.nnet.h15',
-                  'outdir_en-US_429_1024_1024_1024_1024_1375_5/dnn.nnet.h15',
-                  'outdir_en-US_429_1024_1024_1024_1024_1375_6/dnn.nnet.h15']
+    model_list = ['outdir_en-US_429_1024x5_1375/dnn.nnet.h15',
+                  'outdir_en-US_429_1024x4_1375/dnn.nnet.h15',
+                  'outdir_en-US_429_2048x4_1375/dnn.nnet.h15']
 
     weights = list(np.ones(len(model_list)))
-
+    #weights = [0.45, 0.35, 0.2] 
+    
     print ('Loading models ....')
     model_list = [keras.models.load_model('pavans_1024x4/' + m) for m in model_list]
     print ('Loading models, DONE')
@@ -86,7 +67,7 @@ if __name__ == '__main__':
     f = open (location + '/temp.ark', 'wb')
     st = time.time()
     while True:
-        uid, featMat = readUtterance(p1.stdout)
+        uid, featMat = kaldiIO.readUtterance(p1.stdout)
         if uid == None:
             print ('Reached the end of feats.scp')
             break
